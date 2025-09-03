@@ -1,0 +1,165 @@
+<!doctype html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>نظام تتبع طلبات التمويل - Firebase</title>
+<style>
+  body{font-family:Arial,sans-serif;background:#f7f7fb;color:#111;margin:0;padding:0}
+  .container{max-width:900px;margin:20px auto;padding:16px}
+  h1,h3{margin:0 0 10px 0}
+  .card{background:#fff;padding:16px;border-radius:12px;box-shadow:0 4px 12px rgba(0,0,0,0.05);margin-top:12px}
+  label{display:block;margin:8px 0 4px}
+  input,select,textarea,button{width:100%;padding:8px;margin-bottom:8px;border-radius:6px;border:1px solid #ccc;font-size:14px}
+  button{background:#0b5cff;color:#fff;border:none;cursor:pointer}
+  .row{display:flex;gap:10px}
+  .row>input{flex:1}
+  .small{font-size:13px;color:#666}
+  .status{display:inline-block;padding:5px 8px;border-radius:6px;font-size:13px;margin-left:5px}
+  .status.review{background:#fff8e1;color:#8a6d00}
+  .status.approved{background:#e6ffef;color:#0a7a3d}
+  .status.rejected{background:#ffeef0;color:#8a1f2a}
+</style>
+</head>
+<body>
+<div class="container">
+<h1>نظام تتبع طلبات التمويل</h1>
+<div class="row">
+<button onclick="showTrack()">تتبع طلب (المستخدم)</button>
+<button onclick="showAdmin()">لوحة الإدارة</button>
+</div>
+
+<div id="track" class="card" style="display:block;margin-top:12px">
+<h3>تتبع الطلب</h3>
+<label>رقم الطلب</label>
+<div class="row"><input type="text" id="q" placeholder="مثال: ID-..."><button onclick="search()">ابحث</button></div>
+<div id="result" class="small"></div>
+</div>
+
+<div id="admin" class="card" style="display:none;margin-top:12px">
+<h3>تسجيل دخول المسؤول</h3>
+<div class="row"><input type="password" id="adminPass" placeholder="كلمة المرور"><button onclick="adminLogin()">دخول</button></div>
+<div id="adminArea" style="display:none">
+<div class="card">
+<h3>إضافة طلب جديد</h3>
+<label>اسم العميل</label><input type="text" id="name">
+<label>رقم الهوية</label><input type="text" id="nid">
+<label>رقم الآيبان</label><input type="text" id="iban">
+<label>قيمة التمويل</label><input type="number" id="amount">
+<label>القسط الشهري</label><input type="number" id="installment">
+<label>مدة السداد</label><select id="duration"><option>10</option><option>20</option><option>30</option><option>60</option></select>
+<label>ملاحظة الإدارة</label><textarea id="note"></textarea>
+<button onclick="addRequest()">حفظ الطلب</button>
+</div>
+<div class="card">
+<h3>قائمة الطلبات</h3>
+<div id="requestsList"></div>
+</div>
+</div>
+</div>
+
+</div>
+
+<script type="module">
+import { initializeApp } from "https://www.gstatic.com/firebasejs/12.2.1/firebase-app.js";
+import { getFirestore, collection, addDoc, getDocs, updateDoc, doc, deleteDoc, query, where } from "https://www.gstatic.com/firebasejs/12.2.1/firebase-firestore.js";
+
+const firebaseConfig = {
+    apiKey: "AIzaSyB2tL0SvL9uVynkRMkyCBWhm5FVuwhOFkQ",
+    authDomain: "jonoffvvc.firebaseapp.com",
+    projectId: "jonoffvvc",
+    storageBucket: "jonoffvvc.firebasestorage.app",
+    messagingSenderId: "99409892213",
+    appId: "1:99409892213:web:c3c7bc50d333bb01be393c",
+    measurementId: "G-C3T75ZNGS3"
+};
+
+const app = initializeApp(firebaseConfig);
+const db = getFirestore(app);
+
+const ADMIN_PASS = 'admin123';
+
+function showAdmin(){document.getElementById('admin').style.display='block';document.getElementById('track').style.display='none';}
+function showTrack(){document.getElementById('admin').style.display='none';document.getElementById('track').style.display='block';}
+
+async function addRequest(){
+    const name=document.getElementById('name').value.trim();
+    const nid=document.getElementById('nid').value.trim();
+    const iban=document.getElementById('iban').value.trim();
+    const amount=document.getElementById('amount').value.trim();
+    const installment=document.getElementById('installment').value.trim();
+    const duration=document.getElementById('duration').value;
+    const note=document.getElementById('note').value.trim();
+    if(!name||!nid||!iban||!amount||!installment){alert('يرجى إدخال جميع البيانات');return;}
+    const id = 'ID-' + Date.now();
+    await addDoc(collection(db,'requests'),{id,name,nid,iban,amount,installment,duration,note,status:'review'});
+    alert('تم إضافة الطلب. رقم الطلب: '+id);
+    document.getElementById('name').value='';document.getElementById('nid').value='';document.getElementById('iban').value='';document.getElementById('amount').value='';document.getElementById('installment').value='';document.getElementById('note').value='';
+    renderRequests();
+}
+
+async function renderRequests(){
+    const list=document.getElementById('requestsList');if(!list)return;
+    list.innerHTML='';
+    const snapshot = await getDocs(collection(db,'requests'));
+    if(snapshot.empty){list.innerHTML='<div class="small">لا توجد طلبات بعد.</div>';return;}
+    snapshot.forEach(docu=>{
+        const r = docu.data();
+        const div = document.createElement('div');
+        div.className='card';
+        div.innerHTML=`<div><span class='id'>${r.id}</span> — ${r.name} <span class='status ${r.status}'>${statusLabel(r.status)}</span></div>
+        <div class='small'>هوية: ${r.nid} • آيبان: ${r.iban}</div>
+        <div class='small'>قيمة: ${r.amount} • قسط: ${r.installment} • مدة: ${r.duration} شهر</div>
+        <div class='small'>ملاحظة: ${r.note||'-'}</div>
+        <div class='row'>
+          <select onchange="changeStatus('${docu.id}',this.value)">
+            <option value='review' ${r.status==='review'?'selected':''}>قيد المراجعة</option>
+            <option value='approved' ${r.status==='approved'?'selected':''}>تمت الموافقة</option>
+            <option value='rejected' ${r.status==='rejected'?'selected':''}>مرفوض</option>
+          </select>
+          <button onclick="deleteRequest('${docu.id}')">حذف</button>
+        </div>`;
+        list.appendChild(div);
+    });
+}
+
+async function changeStatus(docId,newStatus){
+    const docRef = doc(db,'requests',docId);
+    await updateDoc(docRef,{status:newStatus});
+    renderRequests();
+}
+
+async function deleteRequest(docId){
+    if(!confirm('هل تريد حذف الطلب؟'))return;
+    await deleteDoc(doc(db,'requests',docId));
+    renderRequests();
+}
+
+async function search(){
+    const q=document.getElementById('q').value.trim().toLowerCase();
+    const res=document.getElementById('result');res.innerHTML='';
+    if(!q){res.innerHTML='أدخل رقم الطلب';return;}
+    const snapshot = await getDocs(query(collection(db,'requests'),where('id','==',q)));
+    if(snapshot.empty){res.innerHTML='لم يتم العثور على طلب.';return;}
+    snapshot.forEach(docu=>{
+        const r=docu.data();
+        res.innerHTML=`<div class="card"><div><strong>${r.name}</strong> — <span class='id'>${r.id}</span></div>
+        <div class='small'>هوية: ${r.nid} • آيبان: ${r.iban}</div>
+        <div class='small'>قيمة: ${r.amount} • قسط: ${r.installment} • مدة: ${r.duration} شهر</div>
+        <div style="margin-top:8px">الحالة: <span class='status ${r.status}'>${statusLabel(r.status)}</span></div>
+        <div class='small'>ملاحظة: ${r.note||'-'}</div></div>`;
+    });
+}
+
+function statusLabel(s){if(s==='review')return 'قيد المراجعة';if(s==='approved')return 'تمت الموافقة';if(s==='rejected')return 'مرفوض';return s;}
+
+function adminLogin(){
+    const p=document.getElementById('adminPass').value;
+    if(p===ADMIN_PASS){document.getElementById('adminArea').style.display='block';document.getElementById('adminPass').value='';renderRequests();}
+    else{alert('كلمة المرور غير صحيحة');}
+}
+
+showTrack();
+</script>
+</body>
+</html>
